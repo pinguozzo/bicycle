@@ -1,10 +1,19 @@
 # Play to sync repositories from RHN
-- hosts: all
+- name: "Reposync Playbook"
+  hosts: all
   connection: local
   gather_facts: False
+  become: no 
+ 
+  vars:
+    - repos:
+        - jb-eap-7-for-rhel-7-server-rpms
+        - rhel-7-server-ansible-2-rpms
+        - rhel-7-server-rhv-4-manager-tools-rpms
+        - rhel-7-server-rpms
 
   tasks:
-  
+
 #  - name: Enable rhel-7-server repositories
 #    rhsm_repository:
 #      name: "{{ repo }}"
@@ -15,17 +24,36 @@
       path: /var/www/html/repos
       state: directory
       recurse: yes
-      setype: httpd_sys_content_t
-      serole: object_r
-      seuser: system_u
 
+  - name: "Show Repos"
+    debug: msg="Repo to sync "{{ item }}""
+    loop:
+      - "{{ repos }}"
+    tags: loop
 
-  - name: Run reposync for repository
-    shell: reposync --gpgcheck -l --repoid="{{ repo }}" --download_path=/var/www/html/repos --downloadcomps --download-metadata
+  - name: run reposync for repository
+    #shell:  reposync --gpgcheck -l --repoid={{ item }} --download_path=/var/www/html/repos --downloadcomps --download-metadata
+    shell:  reposync --gpgcheck -l -d -c /var/www/html/redhat.repo --download_path=/var/www/html/repos --downloadcomps --download-metadata
+    tags: reposync
 
-  - name: Create repository for rhel-7-server-rpms
-    shell: createrepo -v /var/www/html/repos/{{ repo }}/ -g /var/www/html/repos/{{ repo }}/comps.xml
-    
-  - name: ensure selinux file contexts
-    command: restorecon -R "/var/www/html/repos/{{ repo }}"
-    
+  - name: run createrepo
+    command: /usr/bin/createrepo --update -v /var/www/html/repos/rhel-7-server-rpms -g /var/www/html/repos/rhel-7-server-rpms/comps.xml
+    register: createrepo
+    tags: createrepo
+
+  - name: "Show var createrepo"
+    debug: var=createrepo
+
+  - name: Ensure selinux file contexts are set
+    command: /usr/sbin/restorecon -R "/var/www/html/repos/{{ item }}"
+    with_items:
+       - "{{ repos }}"
+    tags: selinux
+
+  - name: Create a .repo file for the synced repositories
+    template:
+      src: templates/repository.repo.j2
+      dest: "/var/www/html/repos/{{ item }}.repo"
+    with_items:
+       - "{{ repos }}"
+    tags: repo
